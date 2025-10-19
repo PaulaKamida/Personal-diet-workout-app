@@ -1,44 +1,36 @@
-export default async function handler(req, res) {
+// api/save-record.js  (Vercel Serverless Function: Node.js CJSで安定)
+module.exports = async (req, res) => {
+  // CORS（必要なら許可オリジンを絞ってOK）
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
 
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    console.log('Received data:', req.body);
-    
-    const n8nResponse = await fetch(
+    const body = req.body || {};
+    const response = await fetch(
       'https://n8n.srv1038507.hstgr.cloud/webhook/save-diet-record',
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req.body),
+        body: JSON.stringify(body),
       }
     );
 
-    if (!n8nResponse.ok) {
-      console.error('n8n error:', n8nResponse.status);
-      res.status(500).json({ error: `n8n returned ${n8nResponse.status}` });
-      return;
+    // n8nの応答を前段にそのまま返す
+    const text = await response.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+    if (!response.ok) {
+      return res.status(500).json({ error: `n8n returned ${response.status}`, data });
     }
 
-    const data = await n8nResponse.json().catch(() => ({ success: true }));
-    console.log('n8n response:', data);
-    
-    res.status(200).json({ success: true, message: 'Data saved successfully', data });
-    
-  } catch (error) {
-    console.error('API error:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
-}
+};

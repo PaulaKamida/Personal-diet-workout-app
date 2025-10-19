@@ -524,7 +524,7 @@ const DietWorkoutTracker = () => {
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         <div className="space-y-6">
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <div className="flex justify-between items-center mb-6">
@@ -587,7 +587,8 @@ const DietWorkoutTracker = () => {
               </p>
               
               {currentExercises && currentExercises.length > 0 && (
-                <div className="mt-4 bg-white rounded-lg overflow-hidden border border-blue-200">
+                <div className="mt-4 bg-white rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-blue-100">
                       <tr>
@@ -622,12 +623,13 @@ const DietWorkoutTracker = () => {
                       ))}
                     </tbody>
                   </table>
+                </div>  
                 </div>
               )}
             </div>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
             {Object.entries({ 
               breakfast: '🌅 朝食', 
               lunch: '🍱 昼食', 
@@ -683,7 +685,7 @@ const DietWorkoutTracker = () => {
 
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="font-medium mb-4">📊 今日のサマリー</h3>
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               <div className={`p-4 rounded-lg transition ${isInRange ? 'bg-green-50' : 'bg-yellow-50'}`}>
                 <p className="text-sm text-gray-600">カロリー</p>
                 <p className="text-2xl font-bold">{totalCal}</p>
@@ -701,7 +703,7 @@ const DietWorkoutTracker = () => {
             </div>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <button 
               onClick={handleSave} 
               className="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-medium"
