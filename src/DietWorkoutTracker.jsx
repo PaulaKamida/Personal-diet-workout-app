@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Copy, Check } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Copy, Check, X } from 'lucide-react';
 
 // Vercel用の環境変数設定
 const WEBHOOK_URL = '/api/save-record';
@@ -10,8 +10,31 @@ const DietWorkoutTracker = () => {
   const [isPeriod, setIsPeriod] = useState(false);
   const [copied, setCopied] = useState(false);
   const [currentDay, setCurrentDay] = useState('');
-  const [savedMessage, setSavedMessage] = useState('');
+  const [saving, setSaving] = useState(false);
   const [testMode, setTestMode] = useState(false);
+
+// ✅ トースト（右上通知）
+// ✅ トースト（自動クローズ＆手動クローズ対応）
+const [toast, setToast] = useState(null); // { msg, type }
+const toastTimerRef = useRef(null);
+
+const showToast = (msg, type = 'success', duration = 4000) => {
+  if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  setToast({ msg, type });
+  toastTimerRef.current = setTimeout(() => setToast(null), duration);
+};
+
+const closeToast = () => {
+  if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  setToast(null);
+};
+
+// ページ遷移・アンマウント時にタイマー掃除
+useEffect(() => {
+  return () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  };
+}, []);
 
   useEffect(() => {
     const days = ['日', '月', '火', '水', '木', '金', '土'];
@@ -388,35 +411,39 @@ const DietWorkoutTracker = () => {
   };
 
   const handleSave = async () => {
-    // データ検証
-    if (!weight) {
-      alert('体重を入力してください');
-      return;
-    }
+  if (saving) return; // 二重送信防止
 
-    const weightNum = parseFloat(weight);
-    if (weightNum <= 0 || weightNum > 300) {
-      alert('正しい体重を入力してください（1-300kg）');
-      return;
-    }
+  // ① 先にデータ検証（ここで落ちたら早期return）
+  if (!weight) {
+    showToast('体重を入力してください', 'warn');
+    return;
+  }
 
-    // 少なくとも1つの食事が選択されているか確認
-    const hasAnyMeal = Object.values(selectedMeals).some(meal => meal);
-    if (!hasAnyMeal) {
-      alert('少なくとも1つの食事を選択してください');
-      return;
-    }
+  const weightNum = parseFloat(weight);
+  if (!Number.isFinite(weightNum) || weightNum <= 0 || weightNum > 300) {
+    showToast('正しい体重を入力してください（1-300kg）', 'warn');
+    return;
+  }
 
-    const { cal, prot } = calcTotal();
-    
-    // カロリーの極端な値を警告
-    if (cal < 800 || cal > 2500) {
-      const confirmed = window.confirm(
-        `カロリーが${cal < 800 ? '低すぎます' : '高すぎます'}（${cal}kcal）。このまま保存しますか？`
-      );
-      if (!confirmed) return;
-    }
+  const hasAnyMeal = Object.values(selectedMeals).some(meal => meal);
+  if (!hasAnyMeal) {
+    showToast('少なくとも1つの食事を選択してください', 'warn');
+    return;
+  }
 
+  const { cal, prot } = calcTotal();
+  if (cal < 800 || cal > 2500) {
+    const confirmed = window.confirm(
+      `カロリーが${cal < 800 ? '低すぎます' : '高すぎます'}（${cal}kcal）。このまま保存しますか？`
+    );
+    if (!confirmed) return;
+  }
+
+  // ② ここから「保存中」表示を開始
+  setSaving(true);
+  showToast('💾 保存中...', 'warn', 10000); // 保存中はやや長め
+
+  try {
     const record = {
       date: new Date().toISOString().split('T')[0],
       weight: weightNum,
@@ -435,18 +462,18 @@ const DietWorkoutTracker = () => {
     const updated = [...existingRecords, record];
     localStorage.setItem('dietRecords', JSON.stringify(updated));
 
-    // Webhook送信（タイムアウトを10秒に延長）
+    // Webhook送信（タイムアウト10秒）
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
       console.log('Sending to webhook:', WEBHOOK_URL);
       console.log('Data:', record);
-      
+
       const res = await fetch(WEBHOOK_URL, {
         method: 'POST',
         mode: 'cors',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
@@ -459,28 +486,29 @@ const DietWorkoutTracker = () => {
       if (!res.ok) {
         const errorText = await res.text();
         console.error('Webhook error:', res.status, errorText);
-        setSavedMessage(`⚠️ 保存完了。Webhook送信エラー (${res.status})`);
+        showToast(`⚠️ Webhook送信エラー (${res.status})`, 'error');
       } else {
         const responseData = await res.json().catch(() => ({}));
         console.log('Webhook success:', responseData);
-        setSavedMessage('✅ 保存＆Webhook送信完了！');
+        showToast('✅ 保存＆Webhook送信完了！', 'success');
       }
     } catch (e) {
       clearTimeout(timeoutId);
-      
       console.error('Webhook error details:', e);
-      
-      if (e.name === 'AbortError') {
-        setSavedMessage('⚠️ 保存完了。Webhook送信がタイムアウトしました');
-      } else if (e.message.includes('Failed to fetch')) {
-        setSavedMessage('⚠️ 保存完了。ネットワークエラー（CORS問題の可能性）');
-      } else {
-        setSavedMessage(`⚠️ 保存完了。エラー: ${e.message}`);
-      }
-    }
 
-    setTimeout(() => setSavedMessage(''), 5000);
-  };
+      if (e.name === 'AbortError') {
+        showToast('⚠️ Webhook送信がタイムアウトしました', 'warn');
+      } else if (e.message?.includes('Failed to fetch')) {
+        showToast('⚠️ ネットワークエラー（CORSの可能性）', 'error');
+      } else {
+        showToast(`⚠️ 送信エラー: ${e.message}`, 'error');
+      }
+    }  
+  } finally {
+    setSaving(false);
+  }
+};
+
 
   const copyToCraft = () => {
     const { cal, prot } = calcTotal();
@@ -704,12 +732,14 @@ const DietWorkoutTracker = () => {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <button 
-              onClick={handleSave} 
-              className="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-medium"
-            >
-              💾 保存する
-            </button>
+       <button
+  onClick={handleSave}
+  disabled={saving}
+  className={`flex-1 py-3 rounded-lg transition font-medium text-white
+    ${saving ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+>
+  {saving ? '保存中…' : '💾 保存する'}
+</button>
             <button 
               onClick={copyToCraft} 
               className="flex-1 bg-gray-600 text-white py-3 rounded-lg hover:bg-gray-700 transition font-medium flex items-center justify-center gap-2"
@@ -727,11 +757,36 @@ const DietWorkoutTracker = () => {
               )}
             </button>
           </div>
-          {savedMessage && (
-            <p className="text-center text-green-600 font-medium">{savedMessage}</p>
-          )}
         </div>
       </div>
+    {/* ✅ トースト（右上）: クリックで閉じる */}
+{toast && (
+  <div
+    onClick={closeToast}
+    className={`
+      fixed top-4 right-4 z-50 max-w-[90vw] sm:max-w-sm cursor-pointer
+      px-4 py-3 rounded-lg shadow-lg text-white animate-fade-in
+      ${toast.type === 'success' ? 'bg-emerald-600' : ''}
+      ${toast.type === 'warn' ? 'bg-amber-500' : ''}
+      ${toast.type === 'error' ? 'bg-rose-600' : ''}
+    `}
+    role="status"
+    aria-live="polite"
+    title="クリックで閉じる"
+  >
+    <div className="flex items-start gap-3">
+      <div className="pt-[2px]">{toast.msg}</div>
+      {/* Xアイコンを出したい場合だけ表示（lucide-react の X を import しているなら） */}
+      {/* <button
+        aria-label="閉じる"
+        onClick={(e) => { e.stopPropagation(); closeToast(); }}
+        className="shrink-0 opacity-80 hover:opacity-100"
+      >
+        <X className="w-4 h-4" />
+      </button> */}
+    </div>
+  </div>
+)}
     </div>
   );
 };
