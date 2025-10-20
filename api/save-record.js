@@ -1,17 +1,29 @@
-// api/save-record.js  (Vercel Serverless Function: Node.js CJSで安定)
-module.exports = async (req, res) => {
-  // CORS（必要なら許可オリジンを絞ってOK）
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+// api/save-record.js (Vercel Edge Function)
+export const config = { runtime: 'edge' };
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+export default async function handler(req) {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'GET,OPTIONS,PATCH,DELETE,POST,PUT',
+    'Access-Control-Allow-Headers': 'Content-Type, Accept',
+  };
+
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 
   try {
-    const body = req.body || {};
-    const response = await fetch(
+    const body = await req.json().catch(() => ({}));
+
+    const n8nResp = await fetch(
+      // 有効化済みなら /webhook/ を使う。未有効テストは /webhook-test/
       'https://n8n.srv1038507.hstgr.cloud/webhook/save-diet-record',
       {
         method: 'POST',
@@ -20,17 +32,25 @@ module.exports = async (req, res) => {
       }
     );
 
-    // n8nの応答を前段にそのまま返す
-    const text = await response.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    const text = await n8nResp.text();
+    // n8nの応答がJSONじゃない場合もあるので安全に返す
+    const payload = (() => { try { return JSON.parse(text); } catch { return { raw: text }; } })();
 
-    if (!response.ok) {
-      return res.status(500).json({ error: `n8n returned ${response.status}`, data });
+    if (!n8nResp.ok) {
+      return new Response(JSON.stringify({ error: `n8n returned ${n8nResp.status}`, data: payload }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    return res.status(200).json({ success: true, data });
+    return new Response(JSON.stringify({ success: true, data: payload }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
-};
+}
